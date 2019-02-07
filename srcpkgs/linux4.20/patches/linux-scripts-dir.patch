@@ -1,0 +1,108 @@
+diff -rup a/Makefile b/Makefile
+--- a/Makefile	2019-02-07 20:21:55.889112149 +0100
++++ b/Makefile	2019-02-07 20:25:39.804102507 +0100
+@@ -366,6 +366,7 @@ HOST_LFS_LIBS := $(shell getconf LFS_LIB
+ 
+ HOSTCC       = gcc
+ HOSTCXX      = g++
++SCRIPT_DIR   = .
+ KBUILD_HOSTCFLAGS   := -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 \
+ 		-fomit-frame-pointer -std=gnu89 $(HOST_LFS_CFLAGS) \
+ 		$(HOSTCFLAGS)
+@@ -412,9 +413,9 @@ LDFLAGS_vmlinux =
+ # Use USERINCLUDE when you must reference the UAPI directories only.
+ USERINCLUDE    := \
+ 		-I$(srctree)/arch/$(SRCARCH)/include/uapi \
+-		-I$(objtree)/arch/$(SRCARCH)/include/generated/uapi \
++		-I$(srctree)/arch/$(SRCARCH)/include/generated/uapi \
+ 		-I$(srctree)/include/uapi \
+-		-I$(objtree)/include/generated/uapi \
++		-I$(srctree)/include/generated/uapi \
+                 -include $(srctree)/include/linux/kconfig.h
+ 
+ # Use LINUXINCLUDE when you must reference the include/ directory.
+@@ -437,7 +438,7 @@ KBUILD_LDFLAGS_MODULE := -T $(srctree)/s
+ KBUILD_LDFLAGS :=
+ GCC_PLUGINS_CFLAGS :=
+ 
+-export ARCH SRCARCH CONFIG_SHELL HOSTCC KBUILD_HOSTCFLAGS CROSS_COMPILE AS LD CC
++export ARCH SRCARCH CONFIG_SHELL HOSTCC SCRIPT_DIR KBUILD_HOSTCFLAGS CROSS_COMPILE AS LD CC
+ export CPP AR NM STRIP OBJCOPY OBJDUMP KBUILD_HOSTLDFLAGS KBUILD_HOSTLDLIBS
+ export MAKE LEX YACC AWK GENKSYMS INSTALLKERNEL PERL PYTHON PYTHON2 PYTHON3 UTS_MACHINE
+ export HOSTCXX KBUILD_HOSTCXXFLAGS LDFLAGS_MODULE CHECK CHECKFLAGS
+diff -rup a/scripts/Kbuild.include b/scripts/Kbuild.include
+--- a/scripts/Kbuild.include	2019-02-07 20:22:52.862109696 +0100
++++ b/scripts/Kbuild.include	2019-02-07 20:26:26.529100495 +0100
+@@ -262,7 +262,7 @@ ifndef CONFIG_TRIM_UNUSED_KSYMS
+ 
+ cmd_and_fixdep =                                                             \
+ 	$(echo-cmd) $(cmd_$(1));                                             \
+-	scripts/basic/fixdep $(depfile) $@ '$(make-cmd)' > $(dot-target).cmd;\
++	$(SCRIPT_DIR)/scripts/basic/fixdep $(depfile) $@ '$(make-cmd)' > $(dot-target).cmd;\
+ 	rm -f $(depfile);
+ 
+ else
+diff --git a/scripts/Makefile.gcc-plugins b/scripts/Makefile.gcc-plugins
+index 35042d96cf5d..32a644bbcad7 100644
+--- a/scripts/Makefile.gcc-plugins
++++ b/scripts/Makefile.gcc-plugins
+@@ -44,7 +44,7 @@ export DISABLE_ARM_SSP_PER_TASK_PLUGIN
+ 
+ # All the plugin CFLAGS are collected here in case a build target needs to
+ # filter them out of the KBUILD_CFLAGS.
+-GCC_PLUGINS_CFLAGS := $(strip $(addprefix -fplugin=$(objtree)/scripts/gcc-plugins/, $(gcc-plugin-y)) $(gcc-plugin-cflags-y))
++GCC_PLUGINS_CFLAGS := $(strip $(addprefix -fplugin=$(SCRIPT_DIR)/$(objtree)/scripts/gcc-plugins/, $(gcc-plugin-y)) $(gcc-plugin-cflags-y))
+ # The sancov_plugin.so is included via CFLAGS_KCOV, so it is removed here.
+ GCC_PLUGINS_CFLAGS := $(filter-out %/sancov_plugin.so, $(GCC_PLUGINS_CFLAGS))
+ export GCC_PLUGINS_CFLAGS
+diff --git a/scripts/kconfig/Makefile b/scripts/kconfig/Makefile
+index 181973509a05..3cfab6c5610f 100644
+--- a/scripts/kconfig/Makefile
++++ b/scripts/kconfig/Makefile
+@@ -65,15 +65,15 @@ simple-targets := oldconfig allnoconfig allyesconfig allmodconfig \
+ 	alldefconfig randconfig listnewconfig olddefconfig syncconfig
+ PHONY += $(simple-targets)
+ 
+-$(simple-targets): $(obj)/conf
++$(simple-targets): $(SCRIPT_DIR)/$(obj)/conf $(obj)/conf
+ 	$< $(silent) --$@ $(Kconfig)
+ 
+ PHONY += savedefconfig defconfig
+ 
+-savedefconfig: $(obj)/conf
++savedefconfig: $(SCRIPT_DIR)/$(obj)/conf
+ 	$< $(silent) --$@=defconfig $(Kconfig)
+ 
+-defconfig: $(obj)/conf
++defconfig: $(SCRIPT_DIR)/$(obj)/conf
+ ifeq ($(KBUILD_DEFCONFIG),)
+ 	$< $(silent) --defconfig $(Kconfig)
+ else
+@@ -86,12 +86,12 @@ else
+ endif
+ endif
+ 
+-%_defconfig: $(obj)/conf
++%_defconfig: $(SCRIPT_DIR)/$(obj)/conf
+ 	$(Q)$< $(silent) --defconfig=arch/$(SRCARCH)/configs/$@ $(Kconfig)
+ 
+ configfiles=$(wildcard $(srctree)/kernel/configs/$@ $(srctree)/arch/$(SRCARCH)/configs/$@)
+ 
+-%.config: $(obj)/conf
++%.config: $(SCRIPT_DIR)/$(obj)/conf
+ 	$(if $(call configfiles),, $(error No configuration exists for this target on this architecture))
+ 	$(Q)$(CONFIG_SHELL) $(srctree)/scripts/kconfig/merge_config.sh -m .config $(configfiles)
+ 	+$(Q)yes "" | $(MAKE) -f $(srctree)/Makefile oldconfig
+diff --git a/scripts/mod/Makefile b/scripts/mod/Makefile
+index 42c5d50f2bcc..fb55ea3d39b2 100644
+--- a/scripts/mod/Makefile
++++ b/scripts/mod/Makefile
+@@ -19,7 +19,7 @@ $(obj)/modpost.o $(obj)/file2alias.o $(obj)/sumversion.o: $(obj)/elfconfig.h
+ $(obj)/file2alias.o: $(obj)/$(devicetable-offsets-file)
+ 
+ quiet_cmd_elfconfig = MKELF   $@
+-      cmd_elfconfig = $(obj)/mk_elfconfig < $< > $@
++      cmd_elfconfig = $(SCRIPT_DIR)/$(obj)/mk_elfconfig < $< > $@
+ 
+ $(obj)/elfconfig.h: $(obj)/empty.o $(obj)/mk_elfconfig FORCE
+ 	$(call if_changed,elfconfig)

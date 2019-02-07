@@ -36,6 +36,10 @@ mutable_files="
  /usr/lib/modules/${_kernver}/modules.alias.bin
  /usr/lib/modules/${_kernver}/modules.devname"
 
+if [ -n "$CROSS_BUILD" ]; then
+	makedepends="libressl-devel gmp-devel libada-devel libmpc-devel"
+fi
+
 do_configure() {
 	# 4.20 misses Documentation/DocBook. We ship the directory from 4.12 here.
 	cp -a $FILESDIR/DocBook -t Documentation
@@ -75,11 +79,12 @@ do_configure() {
 		make ${makejobs} ARCH=$arch ${_args} defconfig
 		make ${makejobs} ARCH=$arch ${_args} allmodconfig
 	fi
+
 	# Always use our revision to CONFIG_LOCALVERSION to match our pkg version.
 	sed -i -e "s|^\(CONFIG_LOCALVERSION=\).*|\1\"_${revision}\"|" .config
 }
 do_build() {
-	local arch _cross _args
+	local arch _cross _args _script_cross
 
 	case "$XBPS_TARGET_MACHINE" in
 		i686*) _args="bzImage modules"; arch=i386;;
@@ -90,13 +95,22 @@ do_build() {
 	esac
 	if [ "$CROSS_BUILD" ]; then
 		_cross="CROSS_COMPILE=${XBPS_CROSS_TRIPLET}-"
+		_script_cross="O=./cross-scripts SCRIPT_DIR=${PWD}"
+		_script_cross+=" HOSTCC=${XBPS_CROSS_TRIPLET}-gcc"
+		_script_cross+=" HOSTCXX=${XBPS_CROSS_TRIPLET}-g++"
 	fi
 	if [ "${_patchver}" ]; then
 		_version="EXTRAVERSION=${_patchver}"
 	fi
 	export LDFLAGS=
+
 	make ARCH=$arch ${_version} ${_cross} ${makejobs} prepare
 	make ARCH=$arch ${_version} ${_cross} ${makejobs} ${_args}
+
+	if [ "$CROSS_BUILD" ]; then
+		make ARCH=$arch ${_version} ${_cross} ${_script_cross} ${makejobs} oldconfig
+		make ARCH=$arch ${_version} ${_cross} ${_script_cross} ${makejobs} scripts
+	fi
 }
 do_install() {
 	local arch subarch _args hdrdest
@@ -170,6 +184,10 @@ do_install() {
 
 	# Copy files necessary for later builds, like nvidia and vmware
 	cp Module.symvers ${hdrdest}
+	if [ -n "$CROSS_BUILD" ]; then
+		cp -a cross-scripts/scripts/. scripts
+	fi
+
 	cp -a scripts ${hdrdest}
 
 	mkdir -p ${hdrdest}/arch/${arch}/kernel
